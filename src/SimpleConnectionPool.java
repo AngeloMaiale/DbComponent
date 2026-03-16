@@ -1,67 +1,58 @@
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.TimeUnit;
+import java.util.ArrayList;
+import java.util.List;
 
 public class SimpleConnectionPool {
-    private final BlockingQueue<Connection> pool;
-    private final int poolSize;
+    private final String url;
+    private final String user;
+    private final String password;
+    private final List<Connection> connectionPool;
+    private final List<Connection> usedConnections = new ArrayList<>();
 
-    public SimpleConnectionPool(int size) throws SQLException {
-        this.poolSize = size;
-        this.pool = new ArrayBlockingQueue<>(size);
-        initializePool();
-    }
+    // El constructor ahora recibe TODO lo necesario para conectar
+    public SimpleConnectionPool(String url, String user, String password, int initialSize) throws SQLException {
+        this.url = url;
+        this.user = user;
+        this.password = password;
+        this.connectionPool = new ArrayList<>(initialSize);
 
-    private void initializePool() throws SQLException {
-        for (int i = 0; i < poolSize; i++) {
-            Connection conn = createNewConnection();
-            pool.offer(conn);
+        for (int i = 0; i < initialSize; i++) {
+            connectionPool.add(createNewConnection());
         }
-        System.out.println("Pool inicializado con " + poolSize + " conexiones.");
+        System.out.println("Pool inicializado con " + initialSize + " conexiones.");
     }
 
     private Connection createNewConnection() throws SQLException {
-        return DriverManager.getConnection(
-                DatabaseConfig.getUrl(),
-                DatabaseConfig.getUser(),
-                DatabaseConfig.getPassword()
-        );
+        // Usamos las variables locales configuradas en el constructor
+        return DriverManager.getConnection(url, user, password);
     }
 
-    public Connection getConnection() throws InterruptedException {
-        long startWait = System.currentTimeMillis();
-        Connection conn = pool.poll(3, TimeUnit.SECONDS);
-        long waitTime = System.currentTimeMillis() - startWait;
-        if (conn == null) {
-            System.err.println("[ADVERTENCIA] Pool vacío. Hilos esperando demasiado.");
-            throw new InterruptedException("Tiempo de espera de pool agotado");
+    public synchronized Connection getConnection() throws Exception {
+        if (connectionPool.isEmpty()) {
+            throw new Exception("No hay conexiones disponibles en el pool.");
         }
-        if (waitTime > 4000) {
-            System.out.println("[OPTIMIZACIÓN] Sugerencia: El pool está saturado. Aumenta 'pool.size' en config.properties.");
-        }
-
-        return conn;
+        Connection connection = connectionPool.remove(connectionPool.size() - 1);
+        usedConnections.add(connection);
+        return connection;
     }
 
-    public void releaseConnection(Connection conn) {
-        if (conn != null) {
-            pool.offer(conn);
+    public synchronized void releaseConnection(Connection connection) throws SQLException {
+        if (connection != null) {
+            usedConnections.remove(connection);
+            connectionPool.add(connection);
         }
     }
 
     public void shutdown() {
-        for (Connection conn : pool) {
-            try {
-                if (conn != null && !conn.isClosed()) {
-                    conn.close();
-                }
-            } catch (SQLException e) {
-                e.printStackTrace();
-            }
+        for (Connection c : connectionPool) {
+            try { c.close(); } catch (SQLException e) { e.printStackTrace(); }
         }
-        pool.clear();
+        for (Connection c : usedConnections) {
+            try { c.close(); } catch (SQLException e) { e.printStackTrace(); }
+        }
+        connectionPool.clear();
+        usedConnections.clear();
     }
 }

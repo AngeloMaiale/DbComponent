@@ -16,7 +16,7 @@ public class MainFrame extends JFrame {
         setLayout(new BorderLayout());
         setLocationRelativeTo(null);
 
-        engine = new SimulationEngine(this);
+        engine = new SimulationEngine(this, 4, 100, 5);
 
         Font fuenteConsola = new Font("Monospaced", Font.BOLD, 16);
         Font fuenteBotones = new Font("Arial", Font.BOLD, 14);
