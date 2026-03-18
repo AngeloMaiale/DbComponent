@@ -1,10 +1,15 @@
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.sql.Connection;
-import java.sql.Statement;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 
-// Componente genérico acoplado a la interfaz, no a una BD específica
 public class DbComponent<T extends IAdapter> {
 
     private T adapter;
@@ -15,8 +20,6 @@ public class DbComponent<T extends IAdapter> {
         this.queryMap = new Properties();
         cargarQueries(queriesFilePath);
     }
-
-    // Carga las consultas desde el archivo .properties
     private void cargarQueries(String path) {
         try (FileInputStream fis = new FileInputStream(path)) {
             queryMap.load(fis);
@@ -24,67 +27,45 @@ public class DbComponent<T extends IAdapter> {
             throw new RuntimeException("No se pudo cargar el archivo de queries: " + path);
         }
     }
-
-    /**
-     * Cumple Observación 1 y 3: Solicita conexión, ejecuta UNA query sin usar
-     * SQL crudo, y devuelve la conexión al pool en el finally.
-     */
-    public void query(String queryName) {
+    public List<Map<String, Object>> query(String queryName, Object... params) {
         String sql = queryMap.getProperty(queryName);
         if (sql == null) {
-            System.err.println("La consulta '" + queryName + "' no existe en el archivo.");
-            return;
+            System.err.println("La consulta '" + queryName + "' no existe.");
+            return new ArrayList<>();
         }
-
+        List<Map<String, Object>> resultados = new ArrayList<>();
         Connection conn = null;
         try {
-            conn = adapter.getConnection(); // Solicita al Pool
-            try (Statement stmt = conn.createStatement()) {
-                stmt.execute(sql);
-                System.out.println("✅ Query ejecutado: [" + queryName + "]");
-            }
-        } catch (Exception e) {
-            System.err.println("❌ Error en query: " + e.getMessage());
-        } finally {
-            if (conn != null) {
-                adapter.returnConnection(conn); // Devuelve al Pool obligatoriamente
-            }
-        }
-    }
+            conn = adapter.getConnection();
+            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                for (int i = 0; i < params.length; i++) {
+                    pstmt.setObject(i + 1, params[i]);
+                }
+                if (sql.trim().toUpperCase().startsWith("SELECT")) {
+                    try (ResultSet rs = pstmt.executeQuery()) {
+                        ResultSetMetaData metaData = rs.getMetaData();
+                        int columnCount = metaData.getColumnCount();
 
-    /**
-     * Cumple el esquema base: transaction().
-     * Recibe una lista de nombres de queries para ejecutarlas como bloque.
-     */
-    public void transaction(String[] queryNames) {
-        Connection conn = null;
-        try {
-            conn = adapter.getConnection(); // Solicita al Pool
-            conn.setAutoCommit(false); // Inicia la transacción
-
-            try (Statement stmt = conn.createStatement()) {
-                for (String qName : queryNames) {
-                    String sql = queryMap.getProperty(qName);
-                    if (sql != null) {
-                        stmt.executeUpdate(sql);
-                        System.out.println("-> Ejecutando en TX: [" + qName + "]");
+                        while (rs.next()) {
+                            Map<String, Object> fila = new HashMap<>();
+                            for (int i = 1; i <= columnCount; i++) {
+                                fila.put(metaData.getColumnName(i), rs.getObject(i));
+                            }
+                            resultados.add(fila);
+                        }
                     }
+                } else {
+                    int filasAfectadas = pstmt.executeUpdate();
+                    System.out.println("✅ [" + queryName + "] Filas afectadas: " + filasAfectadas);
                 }
             }
-
-            conn.commit(); // Si todo sale bien, guarda los cambios
-            System.out.println("✅ Transacción confirmada (COMMIT).");
-
         } catch (Exception e) {
-            System.err.println("❌ Error. Revirtiendo cambios (ROLLBACK)...");
-            if (conn != null) {
-                try { conn.rollback(); } catch (Exception ex) { ex.printStackTrace(); }
-            }
+            System.err.println("❌ Error en query '" + queryName + "': " + e.getMessage());
         } finally {
-            if (conn != null) {
-                try { conn.setAutoCommit(true); } catch (Exception ex) { ex.printStackTrace(); }
-                adapter.returnConnection(conn); // Devuelve al Pool
-            }
+            if (conn != null) adapter.returnConnection(conn);
         }
+
+        return resultados;
     }
+
 }
