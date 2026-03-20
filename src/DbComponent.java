@@ -4,6 +4,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -11,10 +12,8 @@ import java.util.Map;
 import java.util.Properties;
 
 public class DbComponent<T extends IAdapter> {
-
     private T adapter;
     private Properties queryMap;
-
     public DbComponent(T adapter, String queriesFilePath) {
         this.adapter = adapter;
         this.queryMap = new Properties();
@@ -45,7 +44,6 @@ public class DbComponent<T extends IAdapter> {
                     try (ResultSet rs = pstmt.executeQuery()) {
                         ResultSetMetaData metaData = rs.getMetaData();
                         int columnCount = metaData.getColumnCount();
-
                         while (rs.next()) {
                             Map<String, Object> fila = new HashMap<>();
                             for (int i = 1; i <= columnCount; i++) {
@@ -67,5 +65,35 @@ public class DbComponent<T extends IAdapter> {
 
         return resultados;
     }
+    public void transaction(String[] queryNames) {
+        Connection conn = null;
+        try {
+            conn = adapter.getConnection();
+            conn.setAutoCommit(false);
 
+            for (String qName : queryNames) {
+                String sql = queryMap.getProperty(qName);
+                if (sql != null) {
+                    try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                        pstmt.executeUpdate();
+                        System.out.println("-> Ejecutando en TX: [" + qName + "]");
+                    }
+                }
+            }
+
+            conn.commit();
+            System.out.println("✅ Transacción confirmada (COMMIT).");
+
+        } catch (Exception e) {
+            System.err.println("❌ Error en transacción. Revirtiendo (ROLLBACK): " + e.getMessage());
+            if (conn != null) {
+                try { conn.rollback(); } catch (SQLException ex) { ex.printStackTrace(); }
+            }
+        } finally {
+            if (conn != null) {
+                try { conn.setAutoCommit(true); } catch (SQLException ex) { ex.printStackTrace(); }
+                adapter.returnConnection(conn);
+            }
+        }
+    }
 }

@@ -1,8 +1,5 @@
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ActionListener;
-import java.awt.Insets;
-
 
 public class MainFrame extends JFrame {
     private JTextArea logArea;
@@ -19,8 +16,6 @@ public class MainFrame extends JFrame {
         engine = new SimulationEngine(this, 4, 100, 5);
 
         Font fuenteConsola = new Font("Monospaced", Font.BOLD, 16);
-        Font fuenteBotones = new Font("Arial", Font.BOLD, 14);
-
         logArea = new JTextArea();
         logArea.setEditable(false);
         logArea.setFont(fuenteConsola);
@@ -30,31 +25,26 @@ public class MainFrame extends JFrame {
         JScrollPane scrollPane = new JScrollPane(logArea);
         add(scrollPane, BorderLayout.CENTER);
 
-        JPanel panelButtons = new JPanel();
+        JPanel panelButtons = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 15));
         panelButtons.setBackground(new Color(240, 240, 240));
-        panelButtons.setLayout(new FlowLayout(FlowLayout.CENTER, 15, 15));
 
         btnTestConn = new JButton("Probar Conexión");
         btnRaw = new JButton("Simulación RAW");
         btnPooled = new JButton("Simulación POOLED");
-        btnStop = new JButton("STOP");
-
-
-        configurarBoton(btnTestConn, fuenteBotones, new Color(220, 220, 220));
-        configurarBoton(btnRaw, fuenteBotones, new Color(255, 200, 200));
-        configurarBoton(btnPooled, fuenteBotones, new Color(200, 255, 200));
-        configurarBoton(btnStop, fuenteBotones, new Color(255, 100, 100));
-        btnStop.setForeground(Color.WHITE);
+        btnStop = new JButton("Detener");
 
         panelButtons.add(btnTestConn);
         panelButtons.add(btnRaw);
         panelButtons.add(btnPooled);
         panelButtons.add(btnStop);
-
         add(panelButtons, BorderLayout.SOUTH);
 
+        configurarEventos();
+    }
+
+    private void configurarEventos() {
         btnTestConn.addActionListener(e -> {
-            appendToGui("Verificando conexión con PostgreSQL...");
+            appendToGui("Verificando conexión con la Base de Datos...");
         });
 
         btnRaw.addActionListener(e -> {
@@ -70,17 +60,23 @@ public class MainFrame extends JFrame {
         btnStop.addActionListener(e -> engine.stopSimulation());
     }
 
-    private void configurarBoton(JButton btn, Font f, Color c) {
-        btn.setFont(f);
-        btn.setBackground(c);
-        btn.setFocusPainted(false);
-        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-    }
-
     public void appendToGui(String message) {
         SwingUtilities.invokeLater(() -> {
             logArea.append(message + "\n");
             logArea.setCaretPosition(logArea.getDocument().getLength());
+        });
+    }
+
+    public void mostrarResultados(long tiempoMs, int exitosas, int fallidas) {
+        SwingUtilities.invokeLater(() -> {
+            appendToGui("\n" + "=".repeat(40));
+            appendToGui("📊 RESUMEN DE EJECUCIÓN");
+            appendToGui("=".repeat(40));
+            appendToGui("⏱️ Tiempo Total: " + tiempoMs + " ms");
+            appendToGui("✅ Tareas Exitosas: " + exitosas);
+            appendToGui("❌ Tareas Fallidas: " + fallidas);
+            appendToGui("=".repeat(40) + "\n");
+            enableButtons(true);
         });
     }
 

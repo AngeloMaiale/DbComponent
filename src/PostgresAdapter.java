@@ -1,13 +1,10 @@
 import java.sql.Connection;
 
 public class PostgresAdapter implements IAdapter {
-    private SimpleConnectionPool pool; // Tu pool creado anteriormente
+    private SimpleConnectionPool pool;
 
-    // El constructor recibe TODA la data de conexión directamente
     public PostgresAdapter(String url, String user, String password, int poolSize) {
         try {
-            // Nota: Debes ajustar tu SimpleConnectionPool para que reciba 
-            // estos parámetros en su constructor si no lo hace ya.
             this.pool = new SimpleConnectionPool(url, user, password, poolSize);
         } catch (Exception e) {
             throw new RuntimeException("Error al crear el pool de Postgres", e);
@@ -16,13 +13,13 @@ public class PostgresAdapter implements IAdapter {
 
     @Override
     public Connection getConnection() throws Exception {
-        return pool.getConnection(); // Saca del pool
+        return pool.getConnection();
     }
 
     @Override
     public void returnConnection(Connection conn) {
         try {
-            pool.releaseConnection(conn); // Devuelve al pool
+            pool.releaseConnection(conn);
         } catch (Exception e) {
             e.printStackTrace();
         }

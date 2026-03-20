@@ -10,8 +10,6 @@ public class SimpleConnectionPool {
     private final String password;
     private final List<Connection> connectionPool;
     private final List<Connection> usedConnections = new ArrayList<>();
-
-    // El constructor ahora recibe TODO lo necesario para conectar
     public SimpleConnectionPool(String url, String user, String password, int initialSize) throws SQLException {
         this.url = url;
         this.user = user;
@@ -23,9 +21,7 @@ public class SimpleConnectionPool {
         }
         System.out.println("Pool inicializado con " + initialSize + " conexiones.");
     }
-
     private Connection createNewConnection() throws SQLException {
-        // Usamos las variables locales configuradas en el constructor
         return DriverManager.getConnection(url, user, password);
     }
 
