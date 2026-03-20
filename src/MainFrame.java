@@ -4,35 +4,36 @@ import java.awt.*;
 public class MainFrame extends JFrame {
     private JTextArea logArea;
     private JButton btnTestConn, btnRaw, btnPooled, btnStop;
+    private JComboBox<String> comboMotores;
     private SimulationEngine engine;
 
     public MainFrame() {
-        setTitle("Simulador de Conexiones a BD - Entrega Final");
-        setSize(950, 700);
+        setTitle("Simulador de Persistencia - Postgres & SQLite");
+        setSize(1000, 700);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
         setLocationRelativeTo(null);
 
-        engine = new SimulationEngine(this, 4, 100, 5);
-
-        Font fuenteConsola = new Font("Monospaced", Font.BOLD, 16);
         logArea = new JTextArea();
         logArea.setEditable(false);
-        logArea.setFont(fuenteConsola);
-        logArea.setBackground(new Color(20, 20, 20));
+        logArea.setFont(new Font("Monospaced", Font.BOLD, 16));
+        logArea.setBackground(new Color(15, 15, 15));
         logArea.setForeground(new Color(0, 255, 100));
 
         JScrollPane scrollPane = new JScrollPane(logArea);
         add(scrollPane, BorderLayout.CENTER);
-
         JPanel panelButtons = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 15));
-        panelButtons.setBackground(new Color(240, 240, 240));
+        panelButtons.setBackground(new Color(230, 230, 230));
+        String[] opcionesBD = {"PostgreSQL (Servidor Remoto)", "SQLite (Archivo Local .db)"};
+        comboMotores = new JComboBox<>(opcionesBD);
 
         btnTestConn = new JButton("Probar Conexión");
         btnRaw = new JButton("Simulación RAW");
         btnPooled = new JButton("Simulación POOLED");
         btnStop = new JButton("Detener");
 
+        panelButtons.add(new JLabel("Seleccionar Motor:"));
+        panelButtons.add(comboMotores);
         panelButtons.add(btnTestConn);
         panelButtons.add(btnRaw);
         panelButtons.add(btnPooled);
@@ -42,22 +43,64 @@ public class MainFrame extends JFrame {
         configurarEventos();
     }
 
+    private IAdapter obtenerAdaptadorSeleccionado() {
+        String seleccion = (String) comboMotores.getSelectedItem();
+        int poolSize = 5;
+
+        try {
+            if (seleccion.contains("PostgreSQL")) {
+                return new PostgresAdapter("jdbc:postgresql://localhost:5432/Prueba", "postgres", "123456", poolSize);
+            } else {
+                return new SqliteAdapter("datos_simulacion.db", poolSize);
+            }
+        } catch (Exception e) {
+            appendToGui("❌ ERROR de Configuración: " + e.getMessage());
+            return null;
+        }
+    }
+
     private void configurarEventos() {
         btnTestConn.addActionListener(e -> {
-            appendToGui("Verificando conexión con la Base de Datos...");
+            appendToGui("\n--- Verificando " + comboMotores.getSelectedItem() + " ---");
+            IAdapter adapter = obtenerAdaptadorSeleccionado();
+            if (adapter != null) {
+                try {
+                    DbComponent<IAdapter> db = new DbComponent<>(adapter, "queries.properties");
+                    db.query("ver_usuarios");
+                    appendToGui("✅ Comunicación establecida correctamente.");
+                } catch (Exception ex) {
+                    appendToGui("❌ Error de comunicación: " + ex.getMessage());
+                } finally {
+                    adapter.close();
+                }
+            }
         });
 
-        btnRaw.addActionListener(e -> {
-            enableButtons(false);
-            new Thread(() -> engine.runRawSimulation()).start();
-        });
+        btnRaw.addActionListener(e -> iniciarSimulacion(false));
+        btnPooled.addActionListener(e -> iniciarSimulacion(true));
 
-        btnPooled.addActionListener(e -> {
-            enableButtons(false);
-            new Thread(() -> engine.runPooledSimulation()).start();
+        btnStop.addActionListener(e -> {
+            if (engine != null) {
+                engine.stopSimulation();
+                appendToGui("🛑 DETENIDO: Cancelando tareas pendientes...");
+            }
         });
+    }
 
-        btnStop.addActionListener(e -> engine.stopSimulation());
+    private void iniciarSimulacion(boolean isPooled) {
+        IAdapter adapter = obtenerAdaptadorSeleccionado();
+        if (adapter == null) return;
+
+        enableButtons(false);
+        appendToGui("\n🚀 LANZANDO SIMULACIÓN " + (isPooled ? "[CON POOL]" : "[SIN POOL]"));
+        appendToGui("📍 Motor: " + comboMotores.getSelectedItem());
+
+        engine = new SimulationEngine(this, adapter, 4, 100, 5);
+
+        new Thread(() -> {
+            if (isPooled) engine.runPooledSimulation();
+            else engine.runRawSimulation();
+        }).start();
     }
 
     public void appendToGui(String message) {
@@ -69,13 +112,13 @@ public class MainFrame extends JFrame {
 
     public void mostrarResultados(long tiempoMs, int exitosas, int fallidas) {
         SwingUtilities.invokeLater(() -> {
-            appendToGui("\n" + "=".repeat(40));
-            appendToGui("📊 RESUMEN DE EJECUCIÓN");
-            appendToGui("=".repeat(40));
-            appendToGui("⏱️ Tiempo Total: " + tiempoMs + " ms");
-            appendToGui("✅ Tareas Exitosas: " + exitosas);
-            appendToGui("❌ Tareas Fallidas: " + fallidas);
-            appendToGui("=".repeat(40) + "\n");
+            appendToGui("\n" + "=".repeat(45));
+            appendToGui("📊 INFORME FINAL DE RENDIMIENTO");
+            appendToGui("=".repeat(45));
+            appendToGui("⏱️ Tiempo de ejecución: " + tiempoMs + " ms");
+            appendToGui("✅ Operaciones exitosas: " + exitosas);
+            appendToGui("❌ Operaciones fallidas: " + fallidas);
+            appendToGui("=".repeat(45) + "\n");
             enableButtons(true);
         });
     }
@@ -85,6 +128,7 @@ public class MainFrame extends JFrame {
             btnRaw.setEnabled(enabled);
             btnPooled.setEnabled(enabled);
             btnTestConn.setEnabled(enabled);
+            comboMotores.setEnabled(enabled);
         });
     }
 

@@ -4,78 +4,86 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class SimulationEngine {
-    private MainFrame frame;
-    private DbComponent<PostgresAdapter> dbComponent;
-    private PostgresAdapter adapter;
+    private final MainFrame gui;
+    private final IAdapter adapter;
+    private final int numHilos;
+    private final int numTareas;
+    private volatile boolean running = false;
 
-    private final int numThreads;
-    private final int numTasks;
-    private final AtomicInteger successfulTasks = new AtomicInteger(0);
-    private final AtomicInteger failedTasks = new AtomicInteger(0);
-    private boolean isRunning = false;
-    private long totalExecutionTime = 0;
-
-    public SimulationEngine(MainFrame frame, int numThreads, int numTasks, int poolSize) {
-        this.frame = frame;
-        this.numThreads = numThreads;
-        this.numTasks = numTasks;
-
-        try {
-            this.adapter = new PostgresAdapter(
-                    DatabaseConfig.getURL(),
-                    DatabaseConfig.getUser(),
-                    DatabaseConfig.getPassword(),
-                    poolSize
-            );
-            this.dbComponent = new DbComponent<>(adapter, "queries.properties");
-        } catch (Exception e) {
-            frame.appendToGui("❌ Error inicializando BD: " + e.getMessage());
-        }
+    public SimulationEngine(MainFrame gui, IAdapter adapter, int numHilos, int numTareas, int poolSize) {
+        this.gui = gui;
+        this.adapter = adapter;
+        this.numHilos = numHilos;
+        this.numTareas = numTareas;
     }
 
     public void runPooledSimulation() {
-        this.isRunning = true;
-        successfulTasks.set(0);
-        failedTasks.set(0);
-
-        frame.appendToGui("\n🚀 Iniciando simulación POOLED...");
-        frame.appendToGui("Hilos: " + numThreads + " | Tareas: " + numTasks);
-
+        running = true;
         long startTime = System.currentTimeMillis();
-        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        AtomicInteger exitosas = new AtomicInteger(0);
+        AtomicInteger fallidas = new AtomicInteger(0);
 
-        for (int i = 0; i < numTasks; i++) {
-            if (!isRunning) break;
+        DbComponent<IAdapter> db = new DbComponent<>(adapter, "queries.properties");
+        ExecutorService executor = Executors.newFixedThreadPool(numHilos);
 
-            final int taskId = i;
+        for (int i = 0; i < numTareas && running; i++) {
+            int tareaId = i + 1;
             executor.execute(() -> {
                 try {
-                    dbComponent.query("ver_usuarios");
-                    successfulTasks.incrementAndGet();
+                    // Simulamos una consulta real
+                    db.query("ver_usuarios");
+                    exitosas.incrementAndGet();
+                    gui.appendToGui("🧵 Hilo " + Thread.currentThread().getId() + " - Tarea " + tareaId + " ✅ OK");
                 } catch (Exception e) {
-                    failedTasks.incrementAndGet();
+                    fallidas.incrementAndGet();
+                    gui.appendToGui("❌ Error en Tarea " + tareaId + ": " + e.getMessage());
                 }
             });
         }
+
         executor.shutdown();
         try {
-            executor.awaitTermination(10, TimeUnit.MINUTES);
+            executor.awaitTermination(1, TimeUnit.MINUTES);
         } catch (InterruptedException e) {
-            frame.appendToGui("⚠️ Simulación interrumpida.");
+            gui.appendToGui("⚠️ Simulación interrumpida.");
         }
-        this.totalExecutionTime = System.currentTimeMillis() - startTime;
-        this.isRunning = false;
-        frame.mostrarResultados(totalExecutionTime, successfulTasks.get(), failedTasks.get());
+
+        long endTime = System.currentTimeMillis();
+        gui.mostrarResultados(endTime - startTime, exitosas.get(), fallidas.get());
+        adapter.close();
     }
 
     public void runRawSimulation() {
-        frame.appendToGui("🚧 Simulación RAW en construcción para la entrega final.");
-        frame.enableButtons(true);
+        running = true;
+        long startTime = System.currentTimeMillis();
+        AtomicInteger exitosas = new AtomicInteger(0);
+        AtomicInteger fallidas = new AtomicInteger(0);
+
+        ExecutorService executor = Executors.newFixedThreadPool(numHilos);
+
+        for (int i = 0; i < numTareas && running; i++) {
+            int tareaId = i + 1;
+            executor.execute(() -> {
+                try (java.sql.Connection conn = adapter.getConnection()) {
+                    var stmt = conn.prepareStatement("SELECT 1");
+                    stmt.executeQuery();
+                    exitosas.incrementAndGet();
+                    gui.appendToGui("🐌 RAW - Tarea " + tareaId + " ✅");
+                } catch (Exception e) {
+                    fallidas.incrementAndGet();
+                }
+            });
+        }
+
+        executor.shutdown();
+        try { executor.awaitTermination(1, TimeUnit.MINUTES); } catch (InterruptedException e) {}
+
+        long endTime = System.currentTimeMillis();
+        gui.mostrarResultados(endTime - startTime, exitosas.get(), fallidas.get());
+        adapter.close();
     }
 
     public void stopSimulation() {
-        this.isRunning = false;
-        frame.appendToGui("🛑 Deteniendo simulación...");
-        if (adapter != null) adapter.close();
+        this.running = false;
     }
 }
