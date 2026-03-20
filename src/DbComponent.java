@@ -14,11 +14,26 @@ import java.util.Properties;
 public class DbComponent<T extends IAdapter> {
     private T adapter;
     private Properties queryMap;
+    public static class DbResult {
+        public List<Map<String, Object>> data = new ArrayList<>();
+        public int filasAfectadas = 0;
+    }
+
+    public static class QueryTask {
+        public String queryName;
+        public Object[] params;
+        public QueryTask(String queryName, Object... params) {
+            this.queryName = queryName;
+            this.params = params;
+        }
+    }
+
     public DbComponent(T adapter, String queriesFilePath) {
         this.adapter = adapter;
         this.queryMap = new Properties();
         cargarQueries(queriesFilePath);
     }
+
     private void cargarQueries(String path) {
         try (FileInputStream fis = new FileInputStream(path)) {
             queryMap.load(fis);
@@ -26,13 +41,14 @@ public class DbComponent<T extends IAdapter> {
             throw new RuntimeException("No se pudo cargar el archivo de queries: " + path);
         }
     }
-    public List<Map<String, Object>> query(String queryName, Object... params) {
+    public DbResult query(String queryName, Object... params) {
+        DbResult resultado = new DbResult();
         String sql = queryMap.getProperty(queryName);
         if (sql == null) {
             System.err.println("La consulta '" + queryName + "' no existe.");
-            return new ArrayList<>();
+            return resultado;
         }
-        List<Map<String, Object>> resultados = new ArrayList<>();
+
         Connection conn = null;
         try {
             conn = adapter.getConnection();
@@ -40,21 +56,22 @@ public class DbComponent<T extends IAdapter> {
                 for (int i = 0; i < params.length; i++) {
                     pstmt.setObject(i + 1, params[i]);
                 }
-                if (sql.trim().toUpperCase().startsWith("SELECT")) {
-                    try (ResultSet rs = pstmt.executeQuery()) {
-                        ResultSetMetaData metaData = rs.getMetaData();
-                        int columnCount = metaData.getColumnCount();
+                boolean isResultSet = pstmt.execute();
+
+                if (isResultSet) {
+                    try (ResultSet rs = pstmt.getResultSet()) {
+                        ResultSetMetaData md = rs.getMetaData();
+                        int columns = md.getColumnCount();
                         while (rs.next()) {
-                            Map<String, Object> fila = new HashMap<>();
-                            for (int i = 1; i <= columnCount; i++) {
-                                fila.put(metaData.getColumnName(i), rs.getObject(i));
+                            Map<String, Object> row = new HashMap<>();
+                            for (int i = 1; i <= columns; ++i) {
+                                row.put(md.getColumnName(i), rs.getObject(i));
                             }
-                            resultados.add(fila);
+                            resultado.data.add(row);
                         }
                     }
                 } else {
-                    int filasAfectadas = pstmt.executeUpdate();
-                    System.out.println("✅ [" + queryName + "] Filas afectadas: " + filasAfectadas);
+                    resultado.filasAfectadas = pstmt.getUpdateCount();
                 }
             }
         } catch (Exception e) {
@@ -63,32 +80,42 @@ public class DbComponent<T extends IAdapter> {
             if (conn != null) adapter.returnConnection(conn);
         }
 
-        return resultados;
+        return resultado;
     }
-    public void transaction(String[] queryNames) {
+
+    public int transaction(List<QueryTask> tareas) {
         Connection conn = null;
+        int totalFilasAfectadas = 0;
+
         try {
             conn = adapter.getConnection();
             conn.setAutoCommit(false);
-
-            for (String qName : queryNames) {
-                String sql = queryMap.getProperty(qName);
+            for (QueryTask tarea : tareas) {
+                String sql = queryMap.getProperty(tarea.queryName);
                 if (sql != null) {
                     try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                        if (tarea.params != null) {
+                            for (int i = 0; i < tarea.params.length; i++) {
+                                pstmt.setObject(i + 1, tarea.params[i]);
+                            }
+                        }
                         pstmt.executeUpdate();
-                        System.out.println("-> Ejecutando en TX: [" + qName + "]");
+                        totalFilasAfectadas += pstmt.getUpdateCount();
+                        System.out.println("-> Ejecutando en TX: [" + tarea.queryName + "] | Filas afectadas: " + pstmt.getUpdateCount());
                     }
                 }
             }
 
             conn.commit();
-            System.out.println("✅ Transacción confirmada (COMMIT).");
+            System.out.println("✅ Transacción confirmada. Total afectadas: " + totalFilasAfectadas);
+            return totalFilasAfectadas;
 
         } catch (Exception e) {
             System.err.println("❌ Error en transacción. Revirtiendo (ROLLBACK): " + e.getMessage());
             if (conn != null) {
                 try { conn.rollback(); } catch (SQLException ex) { ex.printStackTrace(); }
             }
+            return -1; // Indica error
         } finally {
             if (conn != null) {
                 try { conn.setAutoCommit(true); } catch (SQLException ex) { ex.printStackTrace(); }

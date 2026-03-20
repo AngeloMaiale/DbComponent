@@ -33,7 +33,7 @@ public class SimulationEngine {
                     // Simulamos una consulta real
                     db.query("ver_usuarios");
                     exitosas.incrementAndGet();
-                    gui.appendToGui("🧵 Hilo " + Thread.currentThread().getId() + " - Tarea " + tareaId + " ✅ OK");
+                    gui.appendToGui("🧵 Hilo " + Thread.currentThread().threadId() + " - T...");
                 } catch (Exception e) {
                     fallidas.incrementAndGet();
                     gui.appendToGui("❌ Error en Tarea " + tareaId + ": " + e.getMessage());
